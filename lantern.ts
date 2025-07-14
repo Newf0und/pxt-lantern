@@ -48,9 +48,9 @@ namespace lantern {
             let offset: number;
             let band: number;
 
-            const currentTilemap = game.currentScene().tileMap;
-            const tileWidth = currentTilemap ? currentTilemap.tileWidth() : 16; 
-            const tileHeight = currentTilemap ? currentTilemap.tileHeight() : 16; 
+            const currentTilemap = game.currentScene().tilemap; // Changed to .tilemap (lowercase t) just in case, though .tileMap should also work.
+            const tileWidth = currentTilemap ? currentTilemap.tileWidth : 16; // Corrected: property, not method
+            const tileHeight = currentTilemap ? currentTilemap.tileHeight : 16; // Corrected: property, not method
 
             // Helper to check for wall in a given screen rectangle and return clipped width/x
             const getClippedRect = (x: number, y: number, width: number, isRightHalf: boolean) => {
@@ -61,7 +61,7 @@ namespace lantern {
 
                 const row = Math.floor(y / tileHeight);
                 // Ensure row is within tilemap bounds
-                if (row < 0 || row >= currentTilemap.mapRows()) {
+                if (row < 0 || row >= currentTilemap.mapRows) { // Corrected: property, not method
                      return { x: x, width: width }; // If row is out of bounds, no clipping based on walls in this row
                 }
 
@@ -71,10 +71,10 @@ namespace lantern {
                     const endTileCol = Math.floor(endScreenX / tileWidth);
 
                     for (let col = currentTileCol; col <= endTileCol; col++) {
-                        if (col < 0 || col >= currentTilemap.mapColumns()) continue; // Out of bounds
+                        if (col < 0 || col >= currentTilemap.mapColumns) continue; // Corrected: property, not method
 
                         const tile = currentTilemap.getTile(col, row);
-                        if (tile && tiles.isWall(tile)) { // Check if the tile is a wall
+                        if (tile && tile.isWall()) { // Corrected: method on Tile object
                             clippedWidth = Math.max(0, (col * tileWidth) - x);
                             break;
                         }
@@ -87,10 +87,10 @@ namespace lantern {
                     const endTileCol = Math.floor(endScreenX / tileWidth); // This will be smaller or equal
 
                     for (let col = currentTileCol; col >= endTileCol; col--) {
-                        if (col < 0 || col >= currentTilemap.mapColumns()) continue; // Out of bounds
+                        if (col < 0 || col >= currentTilemap.mapColumns) continue; // Corrected: property, not method
 
                         const tile = currentTilemap.getTile(col, row);
-                        if (tile && tiles.isWall(tile)) { // Check if the tile is a wall
+                        if (tile && tile.isWall()) { // Corrected: method on Tile object
                             // The wall is at col * tileWidth. We need to draw up to the right edge of this wall tile.
                             // The segment starts at 'x' (rightmost) and extends left to 'x + width' (leftmost).
                             // If a wall is found at 'col', the effective leftmost point becomes (col + 1) * tileWidth.
@@ -134,7 +134,7 @@ namespace lantern {
                 // screen.mapRect expects positive width, and x as the left-most point.
                 // So we pass cx - offset for x, and (cx - prev) - (cx - offset) for width.
                 // The `getClippedRect` will return the new leftmost x and the positive width.
-                let originalLeftX = cx - halfh;
+                let originalLeftX = cx - halfh; // Not directly used in the current version, kept for context
                 let originalWidth = halfh - offset; // This is the total positive width for the segment
                 clipResult = getClippedRect(cx - offset, cy + y + 1, -(halfh - offset), false); // Pass negative width to indicate left direction
                 screen.mapRect(clipResult.x, cy + y + 1, clipResult.width, 1, bandPalettes[bandPalettes.length - 1]);
