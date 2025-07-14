@@ -48,42 +48,56 @@ namespace lantern {
             let offset: number;
             let band: number;
 
-            const tilemap = game.currentScene().tileMap;
-            const tileWidth = tilemap ? tilemap.tileWidth() : 16; // Default to 16 if no tilemap
-            const tileHeight = tilemap ? tilemap.tileHeight() : 16; // Default to 16 if no tilemap
+            const currentTilemap = game.currentScene().tileMap;
+            const tileWidth = currentTilemap ? currentTilemap.tileWidth() : 16; 
+            const tileHeight = currentTilemap ? currentTilemap.tileHeight() : 16; 
 
             // Helper to check for wall in a given screen rectangle and return clipped width/x
             const getClippedRect = (x: number, y: number, width: number, isRightHalf: boolean) => {
-                if (!tilemap) return { x: x, width: width };
+                if (!currentTilemap) return { x: x, width: width };
 
                 let currentX = x;
                 let clippedWidth = width;
 
-                // Determine the direction of checking walls
-                const xIncrement = isRightHalf ? 1 : -1;
-                const startCol = Math.floor(currentX / tileWidth);
-                const endCol = Math.floor((currentX + width * xIncrement) / tileWidth); // This needs to be carefully handled for left/right
-
                 const row = Math.floor(y / tileHeight);
+                // Ensure row is within tilemap bounds
+                if (row < 0 || row >= currentTilemap.mapRows()) {
+                     return { x: x, width: width }; // If row is out of bounds, no clipping based on walls in this row
+                }
 
                 if (isRightHalf) { // Moving right from center
-                    for (let col = startCol; col < Math.floor((x + width) / tileWidth); col++) {
-                        if (col < 0 || col >= tilemap.mapColumns() || row < 0 || row >= tilemap.mapRows()) continue; // Out of bounds
-                        if (tilemap.isWall(col, row)) {
+                    const endScreenX = x + width;
+                    let currentTileCol = Math.floor(x / tileWidth);
+                    const endTileCol = Math.floor(endScreenX / tileWidth);
+
+                    for (let col = currentTileCol; col <= endTileCol; col++) {
+                        if (col < 0 || col >= currentTilemap.mapColumns()) continue; // Out of bounds
+
+                        const tile = currentTilemap.getTile(col, row);
+                        if (tile && tiles.isWall(tile)) { // Check if the tile is a wall
                             clippedWidth = Math.max(0, (col * tileWidth) - x);
                             break;
                         }
                     }
                 } else { // Moving left from center
-                    for (let col = startCol; col >= Math.floor((x + width) / tileWidth); col--) { // Width is negative for left
-                        if (col < 0 || col >= tilemap.mapColumns() || row < 0 || row >= tilemap.mapRows()) continue; // Out of bounds
-                        if (tilemap.isWall(col, row)) {
-                            // The wall is at col * tileWidth, so we need to draw up to that point
-                            // currentX is cx - prev, and we need to draw to cx - offset
-                            // The wall is encountered moving left.
-                            // So if wall is at col, then we draw from wall + 1 to original start
-                            clippedWidth = Math.max(0, (x + width) - ((col + 1) * tileWidth));
-                            currentX = (col + 1) * tileWidth;
+                    // x here is the rightmost point of the segment (e.g., cx - prev)
+                    // (x + width) is the leftmost point of the segment (e.g., cx - offset)
+                    const endScreenX = x + width; // This is actually the left edge of the segment
+                    let currentTileCol = Math.floor(x / tileWidth);
+                    const endTileCol = Math.floor(endScreenX / tileWidth); // This will be smaller or equal
+
+                    for (let col = currentTileCol; col >= endTileCol; col--) {
+                        if (col < 0 || col >= currentTilemap.mapColumns()) continue; // Out of bounds
+
+                        const tile = currentTilemap.getTile(col, row);
+                        if (tile && tiles.isWall(tile)) { // Check if the tile is a wall
+                            // The wall is at col * tileWidth. We need to draw up to the right edge of this wall tile.
+                            // The segment starts at 'x' (rightmost) and extends left to 'x + width' (leftmost).
+                            // If a wall is found at 'col', the effective leftmost point becomes (col + 1) * tileWidth.
+                            // So, the new width is (x - ((col + 1) * tileWidth))
+                            const wallRightEdge = (col + 1) * tileWidth;
+                            clippedWidth = Math.max(0, x - wallRightEdge);
+                            currentX = wallRightEdge; // The new starting X for mapRect
                             break;
                         }
                     }
@@ -94,10 +108,8 @@ namespace lantern {
 
 
             // First, black out the completely dark areas of the screen
-            // These should also respect walls. This is more complex as it involves larger rectangles.
-            // For simplicity in this example, we'll apply wall clipping to the light bands,
-            // and assume the initial black-out is a broad stroke that gets refined by the light.
-            // A more robust solution for black-out would involve iterating through tiles.
+            // For robust wall handling here, you'd iterate through tilemap cells and apply darkness.
+            // For now, we apply broad black-out and rely on the light bands to "draw over" it.
             screen.fillRect(0, 0, screen.width, cy - halfh + 1, 15)
             screen.fillRect(0, cy - halfh + 1, cx - halfh, halfh << 1, 15)
             screen.fillRect(cx + halfh, cy - halfh + 1, screen.width - cx - halfh + 1, halfh << 1, 15)
@@ -117,10 +129,17 @@ namespace lantern {
                 screen.mapRect(clipResult.x, cy - y, clipResult.width, 1, bandPalettes[bandPalettes.length - 1]);
 
                 // Left side, top and bottom
-                clipResult = getClippedRect(cx - halfh, cy + y + 1, halfh - offset, false);
-                screen.mapRect(cx - clipResult.x, cy + y + 1, clipResult.width, 1, bandPalettes[bandPalettes.length - 1]);
-                clipResult = getClippedRect(cx - halfh, cy - y, halfh - offset, false);
-                screen.mapRect(cx - clipResult.x, cy - y, clipResult.width, 1, bandPalettes[bandPalettes.length - 1]);
+                // Note: For left side, the 'x' in getClippedRect should be the rightmost point of the segment
+                // and 'width' will be negative, representing the extent to the left.
+                // screen.mapRect expects positive width, and x as the left-most point.
+                // So we pass cx - offset for x, and (cx - prev) - (cx - offset) for width.
+                // The `getClippedRect` will return the new leftmost x and the positive width.
+                let originalLeftX = cx - halfh;
+                let originalWidth = halfh - offset; // This is the total positive width for the segment
+                clipResult = getClippedRect(cx - offset, cy + y + 1, -(halfh - offset), false); // Pass negative width to indicate left direction
+                screen.mapRect(clipResult.x, cy + y + 1, clipResult.width, 1, bandPalettes[bandPalettes.length - 1]);
+                clipResult = getClippedRect(cx - offset, cy - y, -(halfh - offset), false);
+                screen.mapRect(clipResult.x, cy - y, clipResult.width, 1, bandPalettes[bandPalettes.length - 1]);
 
 
                 // Darken each concentric circle by remapping the colors
@@ -138,10 +157,11 @@ namespace lantern {
                     screen.mapRect(clipResult.x, cy - y, clipResult.width, 1, bandPalettes[band - 1]);
 
                     // Left side, top and bottom
-                    clipResult = getClippedRect(cx - prev, cy + y + 1, prev - offset, false);
-                    screen.mapRect(cx - clipResult.x, cy + y + 1, clipResult.width, 1, bandPalettes[band - 1]);
-                    clipResult = getClippedRect(cx - prev, cy - y, prev - offset, false);
-                    screen.mapRect(cx - clipResult.x, cy - y, clipResult.width, 1, bandPalettes[band - 1]);
+                    // Again, adjust parameters for getClippedRect for left segments
+                    clipResult = getClippedRect(cx - offset, cy + y + 1, -(prev - offset), false);
+                    screen.mapRect(clipResult.x, cy + y + 1, clipResult.width, 1, bandPalettes[band - 1]);
+                    clipResult = getClippedRect(cx - offset, cy - y, -(prev - offset), false);
+                    screen.mapRect(clipResult.x, cy - y, clipResult.width, 1, bandPalettes[band - 1]);
 
                     prev = offset;
                     band--;
