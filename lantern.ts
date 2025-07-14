@@ -48,61 +48,64 @@ namespace lantern {
             let offset: number;
             let band: number;
 
-            const currentTilemap = game.currentScene().tilemap; // Changed to .tilemap (lowercase t) just in case, though .tileMap should also work.
-            const tileWidth = currentTilemap ? currentTilemap.tileWidth : 16; // Corrected: property, not method
-            const tileHeight = currentTilemap ? currentTilemap.tileHeight : 16; // Corrected: property, not method
+            // Use the globally exposed functions from the 'tiles' namespace
+            const tileWidth = tiles.tileWidth();
+            const mapColumns = tiles.tilemapColumns();
+            const mapRows = tiles.tilemapRows();
 
             // Helper to check for wall in a given screen rectangle and return clipped width/x
             const getClippedRect = (x: number, y: number, width: number, isRightHalf: boolean) => {
+                const currentTilemap = game.currentScene().tilemap;
                 if (!currentTilemap) return { x: x, width: width };
 
                 let currentX = x;
                 let clippedWidth = width;
 
-                const row = Math.floor(y / tileHeight);
+                // Convert screen Y to tile row
+                const row = tiles.screenCoordinateToTile(y);
+
                 // Ensure row is within tilemap bounds
-                if (row < 0 || row >= currentTilemap.mapRows) { // Corrected: property, not method
+                if (row < 0 || row >= mapRows) {
                      return { x: x, width: width }; // If row is out of bounds, no clipping based on walls in this row
                 }
 
                 if (isRightHalf) { // Moving right from center
                     const endScreenX = x + width;
-                    let currentTileCol = Math.floor(x / tileWidth);
-                    const endTileCol = Math.floor(endScreenX / tileWidth);
+                    let currentTileCol = tiles.screenCoordinateToTile(x);
+                    const endTileCol = tiles.screenCoordinateToTile(endScreenX);
 
                     for (let col = currentTileCol; col <= endTileCol; col++) {
-                        if (col < 0 || col >= currentTilemap.mapColumns) continue; // Corrected: property, not method
+                        if (col < 0 || col >= mapColumns) continue; // Out of bounds
 
-                        const tile = currentTilemap.getTile(col, row);
-                        if (tile && tile.isWall()) { // Corrected: method on Tile object
-                            clippedWidth = Math.max(0, (col * tileWidth) - x);
+                        // Use tiles.getTileLocation and tiles.tileIsWall as per your provided API
+                        const tileLocation = tiles.getTileLocation(col, row);
+                        if (tiles.tileIsWall(tileLocation)) {
+                            // Wall found, clip to the left edge of the wall tile
+                            clippedWidth = Math.max(0, (tiles.tileCoordinateToScreen(col)) - x);
                             break;
                         }
                     }
                 } else { // Moving left from center
-                    // x here is the rightmost point of the segment (e.g., cx - prev)
-                    // (x + width) is the leftmost point of the segment (e.g., cx - offset)
-                    const endScreenX = x + width; // This is actually the left edge of the segment
-                    let currentTileCol = Math.floor(x / tileWidth);
-                    const endTileCol = Math.floor(endScreenX / tileWidth); // This will be smaller or equal
+                    // x here is the rightmost screen coordinate of the segment
+                    // (x + width) is the leftmost screen coordinate of the segment (width is negative)
+                    const endScreenX = x + width; 
+                    let currentTileCol = tiles.screenCoordinateToTile(x);
+                    const endTileCol = tiles.screenCoordinateToTile(endScreenX); 
 
                     for (let col = currentTileCol; col >= endTileCol; col--) {
-                        if (col < 0 || col >= currentTilemap.mapColumns) continue; // Corrected: property, not method
+                        if (col < 0 || col >= mapColumns) continue; // Out of bounds
 
-                        const tile = currentTilemap.getTile(col, row);
-                        if (tile && tile.isWall()) { // Corrected: method on Tile object
-                            // The wall is at col * tileWidth. We need to draw up to the right edge of this wall tile.
-                            // The segment starts at 'x' (rightmost) and extends left to 'x + width' (leftmost).
-                            // If a wall is found at 'col', the effective leftmost point becomes (col + 1) * tileWidth.
-                            // So, the new width is (x - ((col + 1) * tileWidth))
-                            const wallRightEdge = (col + 1) * tileWidth;
+                        // Use tiles.getTileLocation and tiles.tileIsWall as per your provided API
+                        const tileLocation = tiles.getTileLocation(col, row);
+                        if (tiles.tileIsWall(tileLocation)) {
+                            // Wall found, clip to the right edge of the wall tile
+                            const wallRightEdge = tiles.tileCoordinateToScreen(col + 1);
                             clippedWidth = Math.max(0, x - wallRightEdge);
                             currentX = wallRightEdge; // The new starting X for mapRect
                             break;
                         }
                     }
                 }
-
                 return { x: currentX, width: clippedWidth };
             }
 
@@ -129,14 +132,7 @@ namespace lantern {
                 screen.mapRect(clipResult.x, cy - y, clipResult.width, 1, bandPalettes[bandPalettes.length - 1]);
 
                 // Left side, top and bottom
-                // Note: For left side, the 'x' in getClippedRect should be the rightmost point of the segment
-                // and 'width' will be negative, representing the extent to the left.
-                // screen.mapRect expects positive width, and x as the left-most point.
-                // So we pass cx - offset for x, and (cx - prev) - (cx - offset) for width.
-                // The `getClippedRect` will return the new leftmost x and the positive width.
-                let originalLeftX = cx - halfh; // Not directly used in the current version, kept for context
-                let originalWidth = halfh - offset; // This is the total positive width for the segment
-                clipResult = getClippedRect(cx - offset, cy + y + 1, -(halfh - offset), false); // Pass negative width to indicate left direction
+                clipResult = getClippedRect(cx - offset, cy + y + 1, -(halfh - offset), false);
                 screen.mapRect(clipResult.x, cy + y + 1, clipResult.width, 1, bandPalettes[bandPalettes.length - 1]);
                 clipResult = getClippedRect(cx - offset, cy - y, -(halfh - offset), false);
                 screen.mapRect(clipResult.x, cy - y, clipResult.width, 1, bandPalettes[bandPalettes.length - 1]);
@@ -157,7 +153,6 @@ namespace lantern {
                     screen.mapRect(clipResult.x, cy - y, clipResult.width, 1, bandPalettes[band - 1]);
 
                     // Left side, top and bottom
-                    // Again, adjust parameters for getClippedRect for left segments
                     clipResult = getClippedRect(cx - offset, cy + y + 1, -(prev - offset), false);
                     screen.mapRect(clipResult.x, cy + y + 1, clipResult.width, 1, bandPalettes[band - 1]);
                     clipResult = getClippedRect(cx - offset, cy - y, -(prev - offset), false);
