@@ -1,6 +1,7 @@
 // (Inside the LightSource class, within the apply() method)
 
-apply() {
+apply();
+    {
     const camera = game.currentScene().camera;
     const halfh = this.width;
     const cx = this.anchor.x - camera.drawOffsetX;
